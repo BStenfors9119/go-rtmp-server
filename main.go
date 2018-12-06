@@ -24,10 +24,12 @@ func main() {
 	var que *pubsub.Queue
 
 	server.HandlePlay = func(conn *rtmp.Conn) {
-		if *pass == conn.URL.Query().Get("pass") {
-			avutil.CopyFile(conn, que.Latest())
-		} else {
-			fmt.Println("Wrong password.")
+		if que != nil {
+			if *pass == conn.URL.Query().Get("pass") {
+				avutil.CopyFile(conn, que.Latest())
+			} else {
+				fmt.Println("Wrong password.")
+			}
 		}
 		conn.Close()
 	}
