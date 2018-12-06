@@ -37,13 +37,8 @@ func main() {
 	server.HandlePublish = func(conn *rtmp.Conn) {
 		defer conn.Close()
 
-		streams, err := conn.Streams()
-		if err != nil {
-			panic(err)
-		}
-
 		if *key != conn.URL.Query().Get("key") {
-			fmt.Println("The stream was denied due to a stream key mismatch.")
+			fmt.Println("Wrong stream key.")
 			return
 		}
 
@@ -51,7 +46,14 @@ func main() {
 			que.Close()
 		}
 		que = pubsub.NewQueue()
+
+		streams, err := conn.Streams()
+		if err != nil {
+			fmt.Println("Error:", err)
+			return
+		}
 		que.WriteHeader(streams)
+
 		avutil.CopyPackets(que, conn)
 	}
 
