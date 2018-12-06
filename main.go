@@ -12,7 +12,8 @@ import (
 )
 
 var addr = flag.String("addr", ":1935", "Address")
-var key = flag.String("key", "changeMe", "Stream key")
+var pass = flag.String("pass", "", "Password")
+var key = flag.String("key", "changeMe", "Streaming key")
 
 func main() {
 	flag.Parse()
@@ -23,7 +24,12 @@ func main() {
 	var que *pubsub.Queue
 
 	server.HandlePlay = func(conn *rtmp.Conn) {
-		avutil.CopyFile(conn, que.Latest())
+		if *pass == conn.URL.Query().Get("pass") {
+			avutil.CopyFile(conn, que.Latest())
+		} else {
+			fmt.Println("Wrong password.")
+		}
+		conn.Close()
 	}
 
 	server.HandlePublish = func(conn *rtmp.Conn) {
