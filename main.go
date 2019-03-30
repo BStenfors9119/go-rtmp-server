@@ -11,9 +11,9 @@ import (
 	"github.com/nareix/joy4/format/rtmp"
 )
 
-var addr = flag.String("addr", ":1935", "Address")
-var pass = flag.String("pass", "", "Password")
-var key = flag.String("key", "changeMe", "Streaming key")
+var addr = flag.String("addr", ":1935", "Address of the stream server")
+var pass = flag.String("pass", "", "Password for watching the stream")
+var key = flag.String("key", "", "Key for streaming to the server")
 
 func main() {
 	flag.Parse()
