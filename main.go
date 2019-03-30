@@ -3,7 +3,8 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"io"
+	"strings"
 
 	"github.com/nareix/joy4/av/avutil"
 	"github.com/nareix/joy4/av/pubsub"
@@ -17,45 +18,61 @@ var key = flag.String("key", "", "Key for streaming to the server")
 
 func main() {
 	flag.Parse()
-	format.RegisterAll()
 
-	server := &rtmp.Server{Addr: *addr}
+	format.RegisterAll()
 
 	var que *pubsub.Queue
 
-	server.HandlePlay = func(conn *rtmp.Conn) {
-		if que != nil {
-			if *pass == "" || *pass == conn.URL.Query().Get("pass") {
-				avutil.CopyFile(conn, que.Latest())
-			} else {
-				fmt.Println("Wrong password.")
+	server := &rtmp.Server{
+		Addr: *addr,
+		HandlePlay: func(conn *rtmp.Conn) {
+			defer conn.Close()
+			if que == nil {
+				return
 			}
-		}
-		conn.Close()
+
+			if *pass != "" && *pass != strings.TrimPrefix(conn.URL.Path, "/") {
+				fmt.Println("The wrong password was used to watch the stream")
+				return
+			}
+
+			if err := avutil.CopyFile(conn, que.Latest()); err != nil && err != io.EOF {
+				fmt.Println("Unable to serve stream:", err)
+			}
+		},
+		HandlePublish: func(conn *rtmp.Conn) {
+			defer conn.Close()
+
+			if *key != "" && *key != strings.TrimPrefix(conn.URL.Path, "/") {
+				fmt.Println("The wrong stream key was used")
+				return
+			}
+
+			if que != nil {
+				que.Close()
+			}
+			que = pubsub.NewQueue()
+
+			streams, err := conn.Streams()
+			if err != nil {
+				fmt.Println("Unable to stream:", err)
+				return
+			}
+			que.WriteHeader(streams)
+
+			fmt.Println("Starting to stream")
+
+			if err := avutil.CopyPackets(que, conn); err == io.EOF {
+				fmt.Println("Stopped streaming")
+			} else if err != nil {
+				fmt.Println("Unable to stream: ", err)
+			}
+		},
 	}
 
-	server.HandlePublish = func(conn *rtmp.Conn) {
-		defer conn.Close()
+	fmt.Println("Starting the streaming server at", *addr)
 
-		if *key != conn.URL.Query().Get("key") {
-			fmt.Println("Wrong stream key.")
-			return
-		}
-
-		if que != nil {
-			que.Close()
-		}
-		que = pubsub.NewQueue()
-
-		streams, err := conn.Streams()
-		if err != nil {
-			fmt.Println("Error:", err)
-			return
-		}
-		que.WriteHeader(streams)
-
-		avutil.CopyPackets(que, conn)
+	if err := server.ListenAndServe(); err != nil {
+		fmt.Println("Unable run the stream server:", err)
 	}
-
-	log.Fatal(server.ListenAndServe())
 }
