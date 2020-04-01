@@ -4,6 +4,8 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/url"
+	"os"
 	"strings"
 
 	"github.com/nareix/joy4/av/avutil"
@@ -12,67 +14,99 @@ import (
 	"github.com/nareix/joy4/format/rtmp"
 )
 
-var addr = flag.String("addr", ":1935", "Address of the stream server")
-var pass = flag.String("pass", "", "Password for watching the stream")
-var key = flag.String("key", "", "Key for streaming to the server")
+var (
+	addr = flag.String("addr", ":1935", "server address")
+	key  = flag.String("key", "", "stream key for streaming to the server")
+	pass = flag.String("pass", "", "password for watching the stream")
+)
+
+var que *pubsub.Queue
 
 func main() {
 	flag.Parse()
 
 	format.RegisterAll()
 
-	var que *pubsub.Queue
-
 	server := &rtmp.Server{
-		Addr: *addr,
-		HandlePlay: func(conn *rtmp.Conn) {
-			defer conn.Close()
-			if que == nil {
-				return
-			}
-
-			if *pass != "" && *pass != strings.TrimPrefix(conn.URL.Path, "/") {
-				fmt.Println("The wrong password was used to watch the stream")
-				return
-			}
-
-			if err := avutil.CopyFile(conn, que.Latest()); err != nil && err != io.EOF {
-				fmt.Println("Unable to serve stream:", err)
-			}
-		},
-		HandlePublish: func(conn *rtmp.Conn) {
-			defer conn.Close()
-
-			if *key != "" && *key != strings.TrimPrefix(conn.URL.Path, "/") {
-				fmt.Println("The wrong stream key was used")
-				return
-			}
-
-			if que != nil {
-				que.Close()
-			}
-			que = pubsub.NewQueue()
-
-			streams, err := conn.Streams()
-			if err != nil {
-				fmt.Println("Unable to stream:", err)
-				return
-			}
-			que.WriteHeader(streams)
-
-			fmt.Println("Starting to stream")
-
-			if err := avutil.CopyPackets(que, conn); err == io.EOF {
-				fmt.Println("Stopped streaming")
-			} else if err != nil {
-				fmt.Println("Unable to stream: ", err)
-			}
-		},
+		Addr:          *addr,
+		HandlePublish: HandlePublish,
+		HandlePlay:    handlePlay,
 	}
 
-	fmt.Println("Starting the streaming server at", *addr)
+	if *key == "" {
+		fmt.Println("Warning: A stream key was not set and anyone can publish a stream to this server.")
+	} else {
+		fmt.Printf("Info: Your stream key is %q. Don't let anyone see it!\n", *key)
+	}
+	if *pass == "" {
+		fmt.Println("Warning: A viewer's password was not set and anyone can watch the stream.")
+	} else {
+		fmt.Println("Info: The viewer's password should be added to the end of the URL for this server like so:",
+			"rtmp://127.0.0.1/"+url.PathEscape(*pass))
+	}
 
+	fmt.Println("Info: Starting the stream server at", *addr)
 	if err := server.ListenAndServe(); err != nil {
-		fmt.Println("Unable run the stream server:", err)
+		fmt.Fprintln(os.Stderr, "Fatal: Couldn't run the stream server:", err)
+	}
+}
+
+func HandlePublish(conn *rtmp.Conn) {
+	defer conn.Close()
+
+	// Require the streamer to append the stream key to the end of the
+	// URL for the server, if the stream key isn't empty.
+	// The popular program OBS Studio will append the value of the Stream Key
+	// to the end of the URL provided in the Server field.
+	if *key != "" && *key != strings.TrimPrefix(conn.URL.Path, "/") {
+		fmt.Println("Info: The wrong stream key was used to stream to the server.")
+		return
+	}
+
+	if que != nil {
+		que.Close()
+	}
+	que = pubsub.NewQueue()
+
+	streams, err := conn.Streams()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Couldn't stream:", err)
+		return
+	}
+	que.WriteHeader(streams)
+
+	fmt.Println("Info: The server has started streaming.")
+
+	if err := avutil.CopyPackets(que, conn); err == io.EOF {
+		fmt.Println("Info: The server has stopped streaming.")
+	} else if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Couldn't stream:", err)
+	}
+}
+
+func handlePlay(conn *rtmp.Conn) {
+	defer conn.Close()
+	if que == nil {
+		return
+	}
+
+	// Require the viewer to append the viewer's password to the end of the URL
+	// for the server, if the viewer's password isn't empty.
+	if *pass != "" {
+		p := strings.TrimPrefix(conn.URL.Path, "/")
+		if p == "" {
+			fmt.Println("Info: A viewer tried to watch the stream providing no password.")
+			return
+		}
+
+		if *pass != p {
+			fmt.Println("Info: A viewer tried to watch the stream with the wrong password.")
+			return
+		}
+	}
+
+	if err := avutil.CopyFile(conn, que.Latest()); err != nil && err != io.EOF {
+		fmt.Printf("%+v\n", err)
+		fmt.Println("Info: Couldn't serve the stream to a viewer:", err)
 	}
 }
