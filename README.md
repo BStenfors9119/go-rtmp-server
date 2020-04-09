@@ -32,16 +32,22 @@ Info: The viewer's password should be added to the end of the URL for this serve
 Info: Starting the stream server at :1935
 ```
 
-To publish your stream to the server, the cross-platform [OBS Studio](https://OBSproject.com) can be used by pasting "rtmp://127.0.0.1" in the Server field of the Stream tab in the settings window, and the stream key in the Stream Key field, assuming you are running the server in the same computer that OBS is running and using the default address.
+The stream key and password are passed as arguments for the sake of ease of use but at the cost of security, so don't use them anywhere else, and because there isn't a limit to the attempts someone can make to publish or play the stream with the wrong stream key and password, make sure you make them strong.
 
-To play the stream, the cross-plaform [VLC media player](https://www.videolan.org/vlc) can be used by pasting "rtmp://127.0.0.1/Really%20strong%20password", or just "rtmp://127.0.0.1" if using no password, in the network URL field under the Network tab of the Open Media window that can be accessed by clicking Media > Open Network Stream in the menu bar.
+### Publish your stream
 
-Note that you may have to forward the RTMP port in your router to the computer which the server is running so that others outside your local network may be able to connect and watch the stream. And don't rely on the viewer's password alone if streaming sensitive information, consider sharing a virtual private network with who you want to stream to, passing your address in the private network to the `-addr` to avoid the server listening at other addresses.
+The cross-platform [OBS Studio](https://OBSproject.com) can be used to publish a stream by pasting rtmp://127.0.0.1 in the Server field of the Stream tab in the settings window, and the stream key in the Stream Key field, assuming the server is running using the default address in the same computer.
+
+### Play the stream
+
+The cross-plaform [VLC media player](https://www.videolan.org/vlc) can be used to watch the stream by pasting rtmp://127.0.0.1/Really%20strong%20password, or just rtmp://127.0.0.1 if using no password, in the network URL field under the Network tab of the Open Media window that can be accessed by clicking Media > Open Network Stream in the menu bar, assuming the server is running using the default address in the same computer.
+
+The RTMP port in your router may have to be forwarded to the computer which the server is running so that connections can be made from outside your local network for publishing a stream or watching the stream.
 
 ## Install
 
-With [Go](https://golang.org) >= 1.6 installed you can build and install with the following command:
+You can download executables for Windows and GNU/Linux under the "releases" tab of this project's Github repository page.
+
+Alternatively, with [Go](https://golang.org) >= 1.6 installed you can build and install with the following command:
 
 ```$ go get github.com/catsocks/go-rtmp-server```
-
-Alternatively, executables are available under the releases tab of this project's Github repository page.
