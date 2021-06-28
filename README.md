@@ -1,53 +1,70 @@
 # Go RTMP server
 
-A RTMP server with a minimal command-line interface written in Go that I made for my own personal use as a local streaming server to privately stream to my friends.
+A RTMP server with a minimal command-line interface written in Go that I made
+for my own personal use as a local streaming server to privately stream to my
+friends.
 
 ## Usage
 
-```
-Usage of go-rtmp-server:
-  -addr string
-        server address (default ":1935")
-  -key string
-        stream key for streaming to the server
-  -pass string
-        password for watching the stream
-```
+    Usage of go-rtmp-server:
+      -addr string
+            server address (default ":1935")
+      -key string
+            stream key for streaming to the server
+      -pass string
+            password for watching the stream
 
-To start the stream server at the default RTMP port 1935 with no stream key or password:
+Start the server at the default RTMP port 1935 with a stream key and password by
+running the server with the -key and -pass flags like so:
 
-```
-$ go-rtmp-server
-Warning: A stream key was not set and anyone can publish a stream to this server.
-Warning: A viewer's password was not set and anyone can watch the stream.
-Info: Starting the stream server at :1935
-```
+    $ go-rtmp-server -key "Really strong key" -pass "Really strong password"
+    Info: Your stream key is "Really strong key". Don't let anyone see it!
+    Info: The viewer's password should be added to the end of the URL for this server like so: rtmp://127.0.0.1/Really%20strong%20password
+    Info: Starting the stream server at :1935
 
-To start the stream server with a stream key and password (recommended):
+You can omit the -key and -pass flags to run without a stream key and password:
 
-```
-$ go-rtmp-server -key "Really strong key" -pass "Really strong password"
-Info: Your stream key is "Really strong key". Don't let anyone see it!
-Info: The viewer's password should be added to the end of the URL for this server like so: rtmp://127.0.0.1/Really%20strong%20password
-Info: Starting the stream server at :1935
-```
+    $ go-rtmp-server
+    Warning: A stream key was not set and anyone can publish a stream to this server.
+    Warning: A viewer's password was not set and anyone can watch the stream.
+    Info: Starting the stream server at :1935
 
-The stream key and password are passed as arguments for the sake of ease of use but at the cost of security, so don't use them anywhere else, and because there isn't a limit to the attempts someone can make to publish or play the stream with the wrong stream key and password, make sure you make them strong.
-
-### Publish your stream
-
-The cross-platform [OBS Studio](https://OBSproject.com) can be used to publish a stream by pasting rtmp://127.0.0.1 in the Server field of the Stream tab in the settings window, and the stream key in the Stream Key field, assuming the server is running using the default address in the same computer.
-
-### Play the stream
-
-The cross-plaform [VLC media player](https://www.videolan.org/vlc) can be used to watch the stream by pasting rtmp://127.0.0.1/Really%20strong%20password, or just rtmp://127.0.0.1 if using no password, in the network URL field under the Network tab of the Open Media window that can be accessed by clicking Media > Open Network Stream in the menu bar, assuming the server is running using the default address in the same computer.
-
-The RTMP port in your router may have to be forwarded to the computer which the server is running so that connections can be made from outside your local network for publishing a stream or watching the stream.
+The stream key and password are passed to the server as flags for ease of use,
+but that can unintentionally expose them if your shell saves your commands to a
+file, for example. Additionally, there is no protection against brute-forcing a
+stream key or password.
 
 ## Install
 
-You can download executables for Windows and GNU/Linux under the "releases" tab of this project's Github repository page.
+You can download the executable from the Releases tab in the GitHub repository
+page of this project.
 
-Alternatively, with [Go](https://golang.org) >= 1.6 installed you can build and install with the following command:
+And you can download and install with [Go](https://golang.org) >= 1.6 using the
+_go get_ command as follows:
 
-```$ go get github.com/catsocks/go-rtmp-server```
+```sh
+$ go get github.com/catsocks/go-rtmp-server
+```
+
+## Publish your stream
+
+You can publish your stream to the server using
+[OBS Studio](https://OBSproject.com) by opening the _Settings_ window, clicking
+the _Stream_ tab, and entering _rtmp://_ proceeded by the address of the
+computer which the server is running on in the _Server_ field. This field can be
+set to _rtmp://127.0.0.1_ if the server is running on the same computer as OBS
+Studio.
+
+## Watch the stream
+
+You can watch the stream using [VLC media player](https://www.videolan.org/vlc)
+by heading over to the menu bar and clicking _Media_ and _Open Network Stream_,
+then pasting the URL containing the URL-encoded password that the server printed
+on startup in the URL field if you are watching the stream from the same
+computer the server is running on, otherwise you must replace the part of the
+URL containing the address with the appropriate address, such as your public
+IP.
+
+Note that you may have to configure your router to forward the port that the
+server uses to the computer which the server will be run on, so that computers
+from outside your local network may reach it.
