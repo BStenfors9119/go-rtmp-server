@@ -4,162 +4,109 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"net/http"
-	"sync"
+	"net/url"
+	"os"
+	"strings"
 
 	"github.com/nareix/joy4/av/avutil"
 	"github.com/nareix/joy4/av/pubsub"
 	"github.com/nareix/joy4/format"
-	"github.com/nareix/joy4/format/flv"
 	"github.com/nareix/joy4/format/rtmp"
 )
 
 var (
-	addr = flag.String("l", ":8089", "host:port of the go-rtmp-server")
-	sKey = flag.String("k", "", "Stream key, to protect your stream")
+	addr = flag.String("addr", ":1935", "server address")
+	key  = flag.String("key", "", "stream key for streaming to the server")
+	pass = flag.String("pass", "", "password for watching the stream")
 )
 
-func init() {
-	format.RegisterAll()
-}
-
-type writeFlusher struct {
-	httpflusher http.Flusher
-	io.Writer
-}
-
-func (self writeFlusher) Flush() error {
-	self.httpflusher.Flush()
-	return nil
-}
+var que *pubsub.Queue
 
 func main() {
 	flag.Parse()
-	server := &rtmp.Server{}
 
-	l := &sync.RWMutex{}
-	type Channel struct {
-		que *pubsub.Queue
-	}
-	channels := map[string]*Channel{}
+	format.RegisterAll()
 
-	server.HandlePlay = func(conn *rtmp.Conn) {
-		l.RLock()
-		ch := channels[conn.URL.Path]
-		l.RUnlock()
-
-		if ch != nil {
-			cursor := ch.que.Latest()
-			avutil.CopyFile(conn, cursor)
-		}
+	server := &rtmp.Server{
+		Addr:          *addr,
+		HandlePublish: HandlePublish,
+		HandlePlay:    handlePlay,
 	}
 
-	server.HandlePublish = func(conn *rtmp.Conn) {
-		streams, _ := conn.Streams()
+	if *key == "" {
+		fmt.Println("Warning: A stream key was not set and anyone can publish a stream to this server.")
+	} else {
+		fmt.Printf("Info: Your stream key is %q. Don't let anyone see it!\n", *key)
+	}
+	if *pass == "" {
+		fmt.Println("Warning: A viewer's password was not set and anyone can watch the stream.")
+	} else {
+		fmt.Println("Info: The viewer's password should be added to the end of the URL for this server like so:",
+			"rtmp://127.0.0.1/"+url.PathEscape(*pass))
+	}
 
-		l.Lock()
-		fmt.Println("request string->", conn.URL.RequestURI())
-		fmt.Println("request key->", conn.URL.Query().Get("key"))
-		streamKey := conn.URL.Query().Get("key")
-		if streamKey != *sKey {
-			fmt.Println("Due to key not match, denied stream")
-			return //If key not match, deny stream
-		}
-		ch := channels[conn.URL.Path]
-		if ch == nil {
-			ch = &Channel{}
-			ch.que = pubsub.NewQueue()
-			ch.que.WriteHeader(streams)
-			channels[conn.URL.Path] = ch
-		} else {
-			ch = nil
-		}
-		l.Unlock()
-		if ch == nil {
+	fmt.Println("Info: Starting the stream server at", *addr)
+	if err := server.ListenAndServe(); err != nil {
+		fmt.Fprintln(os.Stderr, "Fatal: Couldn't run the stream server:", err)
+	}
+}
+
+func HandlePublish(conn *rtmp.Conn) {
+	defer conn.Close()
+
+	// Require the streamer to append the stream key to the end of the
+	// URL for the server, if the stream key isn't empty.
+	// The popular program OBS Studio will append the value of the Stream Key
+	// to the end of the URL provided in the Server field.
+	if *key != "" && *key != strings.TrimPrefix(conn.URL.Path, "/") {
+		fmt.Println("Info: The wrong stream key was used to stream to the server.")
+		return
+	}
+
+	if que != nil {
+		que.Close()
+	}
+	que = pubsub.NewQueue()
+
+	streams, err := conn.Streams()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Couldn't stream:", err)
+		return
+	}
+	que.WriteHeader(streams)
+
+	fmt.Println("Info: The server has started streaming.")
+
+	if err := avutil.CopyPackets(que, conn); err == io.EOF {
+		fmt.Println("Info: The server has stopped streaming.")
+	} else if err != nil {
+		fmt.Fprintln(os.Stderr, "Error: Couldn't stream:", err)
+	}
+}
+
+func handlePlay(conn *rtmp.Conn) {
+	defer conn.Close()
+	if que == nil {
+		return
+	}
+
+	// Require the viewer to append the viewer's password to the end of the URL
+	// for the server, if the viewer's password isn't empty.
+	if *pass != "" {
+		p := strings.TrimPrefix(conn.URL.Path, "/")
+		if p == "" {
+			fmt.Println("Info: A viewer tried to watch the stream providing no password.")
 			return
 		}
 
-		avutil.CopyPackets(ch.que, conn)
-
-		l.Lock()
-		delete(channels, conn.URL.Path)
-		l.Unlock()
-		ch.que.Close()
+		if *pass != p {
+			fmt.Println("Info: A viewer tried to watch the stream with the wrong password.")
+			return
+		}
 	}
 
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		l.RLock()
-		ch := channels[r.URL.Path]
-		l.RUnlock()
-
-		if ch != nil {
-			w.Header().Set("Content-Type", "video/x-flv")
-			w.Header().Set("Transfer-Encoding", "chunked")
-			w.Header().Set("Access-Control-Allow-Origin", "*")
-			w.WriteHeader(200)
-			flusher := w.(http.Flusher)
-			flusher.Flush()
-
-			muxer := flv.NewMuxerWriteFlusher(writeFlusher{httpflusher: flusher, Writer: w})
-			cursor := ch.que.Latest()
-
-			avutil.CopyFile(muxer, cursor)
-		} else {
-			fmt.Println("Request url: ", r.URL.Path)
-			if r.URL.Path != "/" {
-				http.NotFound(w, r)
-			} else {
-				homeHtml := `
-				<!DOCTYPE html>
-<html>
-	<head>
-		<title>Demo live</title>
-		<style>
-		body {
-			margin:0;
-			padding:0;
-			background:#000;
-		}
-		
-        video {
-			position:absolute;
-			width:100%;
-			height:100%;
-		}
-		</style>
-	</head>
-	<body>
-		<script src="https://cdnjs.cloudflare.com/ajax/libs/flv.js/1.3.2/flv.min.js"></script>
-		 
-        <video id="videoElement" controls autoplay x5-video-player-type="h5" x5-video-player-fullscreen="true" playsinline webkit-playsinline>
-            Your browser is too old which doesn't support HTML5 video.
-        </video>
-		<script>
-if (flvjs.isSupported()) {
-	var videoElement = document.getElementById('videoElement');
-	var flvPlayer = flvjs.createPlayer({
-		type: 'flv',
-		url: '/live'
-	});
-	flvPlayer.attachMediaElement(videoElement);
-	flvPlayer.load();
-	flvPlayer.play();
-}
-		</script>
-	</body>
-</html>`
-				io.WriteString(w, homeHtml)
-			}
-		}
-	})
-
-	go http.ListenAndServe(*addr, nil)
-	fmt.Println("Listen and serve ", *addr)
-
-	server.ListenAndServe()
-
-	// ffmpeg -re -i movie.flv -c copy -f flv rtmp://localhost/movie
-	// ffmpeg -f avfoundation -i "0:0" .... -f flv rtmp://localhost/screen
-	// ffplay http://localhost:8089/movie
-	// ffplay http://localhost:8089/screen
+	if err := avutil.CopyFile(conn, que.Latest()); err != nil && err != io.EOF {
+		fmt.Printf("%+v\n", err)
+		fmt.Println("Info: Couldn't serve the stream to a viewer:", err)
+	}
 }
