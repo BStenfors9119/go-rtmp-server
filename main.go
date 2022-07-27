@@ -58,7 +58,8 @@ func HandlePublish(conn *rtmp.Conn) {
 	// URL for the server, if the stream key isn't empty.
 	// The popular program OBS Studio will append the value of the Stream Key
 	// to the end of the URL provided in the Server field.
-	fmt.Sprintf("Info: Conn URL Path %s", conn.URL.Path)
+	connUrlPath := fmt.Sprintf("Info: Conn URL Path %s", conn.URL.Path)
+	fmt.Println(connUrlPath)
 	if *key != "" && *key != strings.TrimPrefix(conn.URL.Path, "/") {
 		fmt.Println("Info: The wrong stream key was used to stream to the server.")
 		return
